@@ -32,7 +32,7 @@ jobs:
         run: |  
           set -e
           mkdir -p kerneldriver  
-          mv ./code/*.c kerneldriver/  
+          mv ./code/*.h ./code/*.c kerneldriver/  
           echo 'obj-m += read.o' > kerneldriver/Makefile  
           echo 'ccflags-y := -I$$(srctree)/include' >> kerneldriver/Makefile  
             
@@ -61,27 +61,43 @@ jobs:
           cd android-kernel  
           echo "obj-y += kerneldriver/" >> common/drivers/Makefile  
 
-      - name: Add module to GKI modules list  
-        run: |  
+      - name: Find and update modules.bzl
+        run: |
           set -e
-          cd android-kernel  
-          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"  
-            
-          # 使用Python脚本更新modules.bzl  
+          cd android-kernel
+          
+          # 查找 modules.bzl 文件位置
+          if [ -f "common/modules.bzl" ]; then
+            MODULES_BZL_PATH="common/modules.bzl"
+          elif [ -f "build/kernel/modules.bzl" ]; then
+            MODULES_BZL_PATH="build/kernel/modules.bzl"
+          elif [ -f "build/bazel/modules.bzl" ]; then
+            MODULES_BZL_PATH="build/bazel/modules.bzl"
+          else
+            echo "Error: Cannot find modules.bzl file"
+            find . -name modules.bzl || true
+            exit 1
+          fi
+          
+          echo "Found modules.bzl at: $MODULES_BZL_PATH"
+          
+          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
+          
+          # 使用Python脚本更新modules.bzl
           python3 <<EOF
           import re
           import sys
 
-          bzl_file = "common/modules.bzl"
-          module_name = "${MODULE_NAME}"
+          bzl_file = "$MODULES_BZL_PATH"
+          module_name = "$MODULE_NAME"
 
           try:
               with open(bzl_file, 'r') as f:
                   content = f.read()
 
-              # 查找_COMMON_GKI_MODULES_LIST  
-              pattern = r'(_COMMON_GKI_MODULES_LIST\s*=\s*\[)([^\]]*)(\])'  
-              match = re.search(pattern, content, re.DOTALL)  
+              # 查找_COMMON_GKI_MODULES_LIST
+              pattern = r'(_COMMON_GKI_MODULES_LIST\s*=\s*\[)([^\]]*)(\])'
+              match = re.search(pattern, content, re.DOTALL)
               
               if match:  
                   prefix = match.group(1)  
@@ -98,13 +114,35 @@ jobs:
                     
                   with open(bzl_file, 'w') as f:  
                       f.write(new_content)  
-                  print(f"Added {module_name} to GKI modules list")  
-              else:  
-                  print("Error: Could not find _COMMON_GKI_MODULES_LIST")  
-                  sys.exit(1)
+                  print(f"Added {module_name} to GKI modules list at {bzl_file}")  
+              else:
+                  # 尝试其他可能的模块列表名称
+                  pattern = r'(_GKI_MODULES_LIST\s*=\s*\[)([^\]]*)(\])'
+                  match = re.search(pattern, content, re.DOTALL)
+                  
+                  if match:  
+                      prefix = match.group(1)  
+                      modules = match.group(2).strip()  
+                      suffix = match.group(3)  
+                        
+                      # 添加新模块  
+                      new_modules = modules  
+                      if new_modules and not new_modules.endswith(','):  
+                          new_modules += ','  
+                      new_modules += f'\n    "{module_name}",'  
+                        
+                      new_content = content.replace(match.group(0), prefix + new_modules + suffix)  
+                        
+                      with open(bzl_file, 'w') as f:  
+                          f.write(new_content)  
+                      print(f"Added {module_name} to GKI modules list at {bzl_file} (using _GKI_MODULES_LIST)")  
+                  else:
+                      print("Error: Could not find GKI modules list variable")
+                      print("Tried patterns: _COMMON_GKI_MODULES_LIST and _GKI_MODULES_LIST")
+                      sys.exit(1)
 
           except Exception as e:
-              print(f"Error updating modules.bzl: {str(e)}")
+              print(f"Error updating {bzl_file}: {str(e)}")
               sys.exit(1)
           EOF
 
