@@ -23,161 +23,170 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
-        
-      - name: Prepare kerneldriver directory
-        run: |
-          mkdir -p kerneldriver
-          mv ./code/*.h ./code/*.c kerneldriver/
-          echo 'obj-m += read.o' > kerneldriver/Makefile
-          echo 'ccflags-y := -I$$(srctree)/include' >> kerneldriver/Makefile
+
+    steps:  
+      - name: Checkout repository  
+        uses: actions/checkout@v4.2.2  
           
-      - name: Install repo tool
-        run: |
-          sudo curl -L https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
-          sudo chmod a+x /usr/local/bin/repo
+      - name: Prepare kerneldriver directory  
+        run: |  
+          set -e
+          mkdir -p kerneldriver  
+          mv ./code/*.h ./code/*.c kerneldriver/  
+          echo 'obj-m += read.o' > kerneldriver/Makefile  
+          echo 'ccflags-y := -I$$(srctree)/include' >> kerneldriver/Makefile  
+            
+      - name: Install repo tool  
+        run: |  
+          set -e
+          sudo curl -L https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo  
+          sudo chmod a+x /usr/local/bin/repo  
 
-      - name: Set up Android Kernel source
-        run: |
-          mkdir -p android-kernel && cd android-kernel
-          repo init -u https://android.googlesource.com/kernel/manifest -b common-android${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}
-          repo sync -j$(nproc) -c --no-tags --optimized-fetch --force-sync
+      - name: Set up Android Kernel source  
+        run: |  
+          set -e
+          mkdir -p android-kernel && cd android-kernel  
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}  
+          repo sync -j$(nproc) -c --no-tags --optimized-fetch --force-sync  
 
-      - name: Copy kerneldriver
-        run: |
-          cd android-kernel
-          cp -r ../kerneldriver common/drivers
+      - name: Copy kerneldriver  
+        run: |  
+          set -e
+          cd android-kernel  
+          cp -r ../kerneldriver common/drivers  
 
-      - name: Modify drivers Makefile
-        run: |
-          cd android-kernel
-          echo "obj-y += kerneldriver/" >> common/drivers/Makefile
+      - name: Modify drivers Makefile  
+        run: |  
+          set -e
+          cd android-kernel  
+          echo "obj-y += kerneldriver/" >> common/drivers/Makefile  
 
-      - name: Add module to GKI modules list
-        run: |
-          cd android-kernel
-          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
-          
-          # 使用Python脚本更新modules.bzl
+      - name: Add module to GKI modules list  
+        run: |  
+          set -e
+          cd android-kernel  
+          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"  
+            
+          # 使用Python脚本更新modules.bzl  
           python3 <<EOF
-import re
-import sys
+          import re
+          import sys
 
-bzl_file = "common/modules.bzl"
-module_name = "$MODULE_NAME"
+          bzl_file = "common/modules.bzl"
+          module_name = "${MODULE_NAME}"
 
-try:
-    with open(bzl_file, 'r') as f:
-        content = f.read()
-    
-    # 查找_COMMON_GKI_MODULES_LIST
-    pattern = r'(_COMMON_GKI_MODULES_LIST\s*=\s*\[)([^\]]*)(\])'
-    match = re.search(pattern, content, re.DOTALL)
-    
-    if match:
-        prefix = match.group(1)
-        modules = match.group(2).strip()
-        suffix = match.group(3)
-        
-        # 添加新模块
-        new_modules = modules
-        if new_modules and not new_modules.endswith(','):
-            new_modules += ','
-        new_modules += f'\n    "{module_name}",'
-        
-        new_content = content.replace(match.group(0), prefix + new_modules + suffix)
-        
-        with open(bzl_file, 'w') as f:
-            f.write(new_content)
-        print(f"Added {module_name} to GKI modules list")
-    else:
-        print("Error: Could not find _COMMON_GKI_MODULES_LIST")
-        sys.exit(1)
-        
-except Exception as e:
-    print(f"Error updating modules.bzl: {str(e)}")
-    sys.exit(1)
-EOF
+          try:
+              with open(bzl_file, 'r') as f:
+                  content = f.read()
 
-      - name: Increase stack frame size limit
-        run: |
-          cd android-kernel
-          # 更新所有Makefile中的帧大小限制
-          find . -type f -name "Makefile*" -exec sed -i 's/-Wframe-larger-than=[0-9]\+/-Wframe-larger-than=4096/g' {} +
-          
-          # 确保全局设置
-          if ! grep -q "FRAME_WARN" common/Makefile; then
-              echo 'KBUILD_CFLAGS += -Wframe-larger-than=4096' >> common/Makefile
-          fi
-          
-          # 更新build.config文件
-          find . -name "build.config.*" -exec sed -i 's/-Wframe-larger-than=[0-9]\+/-Wframe-larger-than=4096/g' {} +
-          
-          # 针对GKI 2.0的额外设置
-          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then
-              sed -i 's/FRAME_WARN := [0-9]\+/FRAME_WARN := 4096/' build.config.common
-          fi
+              # 查找_COMMON_GKI_MODULES_LIST  
+              pattern = r'(_COMMON_GKI_MODULES_LIST\s*=\s*\[)([^\]]*)(\])'  
+              match = re.search(pattern, content, re.DOTALL)  
+              
+              if match:  
+                  prefix = match.group(1)  
+                  modules = match.group(2).strip()  
+                  suffix = match.group(3)  
+                    
+                  # 添加新模块  
+                  new_modules = modules  
+                  if new_modules and not new_modules.endswith(','):  
+                      new_modules += ','  
+                  new_modules += f'\n    "{module_name}",'  
+                    
+                  new_content = content.replace(match.group(0), prefix + new_modules + suffix)  
+                    
+                  with open(bzl_file, 'w') as f:  
+                      f.write(new_content)  
+                  print(f"Added {module_name} to GKI modules list")  
+              else:  
+                  print("Error: Could not find _COMMON_GKI_MODULES_LIST")  
+                  sys.exit(1)
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 python3-distutils
-          sudo apt-get install -y git-core gnupg zip unzip
-          
-          # Android 12+ 需要Bazel
-          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then
-              sudo apt-get install -y openjdk-11-jdk
-              curl -L https://github.com/bazelbuild/bazel/releases/download/7.0.0/bazel-7.0.0-installer-linux-x86_64.sh -o bazel-installer.sh
-              chmod +x bazel-installer.sh
-              ./bazel-installer.sh --user
-              echo 'export PATH="$PATH:$HOME/bin"' >> ~/.bashrc
-              source ~/.bashrc
-          fi
+          except Exception as e:
+              print(f"Error updating modules.bzl: {str(e)}")
+              sys.exit(1)
+          EOF
 
-      - name: Build kernel module
-        run: |
-          cd android-kernel
+      - name: Increase stack frame size limit  
+        run: |  
+          set -e
+          cd android-kernel  
+          # 更新所有Makefile中的帧大小限制  
+          find . -type f -name "Makefile*" -exec sed -i 's/-Wframe-larger-than=[0-9]\+/-Wframe-larger-than=4096/g' {} +  
+            
+          # 确保全局设置  
+          if ! grep -q "FRAME_WARN" common/Makefile; then  
+              echo 'KBUILD_CFLAGS += -Wframe-larger-than=4096' >> common/Makefile  
+          fi  
+            
+          # 更新build.config文件  
+          find . -name "build.config.*" -exec sed -i 's/-Wframe-larger-than=[0-9]\+/-Wframe-larger-than=4096/g' {} +  
+            
+          # 针对GKI 2.0的额外设置  
+          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then  
+              sed -i 's/FRAME_WARN := [0-9]\+/FRAME_WARN := 4096/' build.config.common  
+          fi  
+
+      - name: Install dependencies  
+        run: |  
+          set -e
+          sudo apt-get update  
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 python3-distutils  
+          sudo apt-get install -y git-core gnupg zip unzip  
+            
+          # Android 12+ 需要Bazel  
+          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then  
+              sudo apt-get install -y openjdk-11-jdk  
+              curl -L https://github.com/bazelbuild/bazel/releases/download/7.0.0/bazel-7.0.0-installer-linux-x86_64.sh -o bazel-installer.sh  
+              chmod +x bazel-installer.sh  
+              ./bazel-installer.sh --user  
+              echo 'export PATH="$PATH:$HOME/bin"' >> ~/.bashrc  
+              source ~/.bashrc  
+          fi  
+
+      - name: Build kernel module  
+        run: |  
+          set -e
+          cd android-kernel  
+            
+          # 设置环境变量  
+          export PATH="$PATH:$HOME/bin"  
+            
+          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then  
+              echo "Building with Bazel for Android ${{ github.event.inputs.android_version }}"  
+                
+              # 配置环境  
+              source build/envsetup.sh  
+              lunch gki_${{ github.event.inputs.target_arch }}-userdebug  
+                
+              # 构建特定模块  
+              bazel build --config=fast //common:kernel_${{ github.event.inputs.target_arch }}_dist -- //common/drivers/kerneldriver:read  
+                
+              # 创建输出目录  
+              mkdir -p out  
+                
+              # 复制内核映像  
+              cp bazel-bin/common/kernel_${{ github.event.inputs.target_arch }}_dist out/  
+                
+              # 复制内核模块  
+              MODULE_PATH="bazel-bin/common/drivers/kerneldriver/${{ github.event.inputs.driver_name }}"  
+              if [ -f "$MODULE_PATH" ]; then  
+                  cp $MODULE_PATH out/  
+              else  
+                  echo "Error: Kernel module not found at $MODULE_PATH"  
+                  exit 1  
+              fi  
+          else  
+              echo "Building with legacy system for Android ${{ github.event.inputs.android_version }}"  
+              BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} build/build.sh  
+          fi  
+        continue-on-error: false  
           
-          # 设置环境变量
-          export PATH="$PATH:$HOME/bin"
-          
-          if [ ${{ github.event.inputs.android_version }} -ge 12 ]; then
-              echo "Building with Bazel for Android ${{ github.event.inputs.android_version }}"
-              
-              # 配置环境
-              source build/envsetup.sh
-              lunch gki_${{ github.event.inputs.target_arch }}-userdebug
-              
-              # 构建特定模块
-              bazel build --config=fast //common:kernel_${{ github.event.inputs.target_arch }}_dist -- //common/drivers/kerneldriver:read
-              
-              # 创建输出目录
-              mkdir -p out
-              
-              # 复制内核映像
-              cp bazel-bin/common/kernel_${{ github.event.inputs.target_arch }}_dist out/
-              
-              # 复制内核模块
-              MODULE_PATH="bazel-bin/common/drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
-              if [ -f "$MODULE_PATH" ]; then
-                  cp $MODULE_PATH out/
-              else
-                  echo "Error: Kernel module not found at $MODULE_PATH"
-                  exit 1
-              fi
-          else
-              echo "Building with legacy system for Android ${{ github.event.inputs.android_version }}"
-              BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} build/build.sh
-          fi
-        continue-on-error: false
-        
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: kernel-driver-${{ github.event.inputs.target_arch }}
-          path: |
-            android-kernel/out/${{ github.event.inputs.driver_name }}
+      - name: Upload artifacts  
+        uses: actions/upload-artifact@v4.6.2  
+        with:  
+          name: kernel-driver-${{ github.event.inputs.target_arch }}  
+          path: |  
+            android-kernel/out/${{ github.event.inputs.driver_name }}  
             android-kernel/out/kernel_${{ github.event.inputs.target_arch }}
