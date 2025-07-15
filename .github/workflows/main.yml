@@ -32,7 +32,7 @@ jobs:
         run: |  
           set -e
           mkdir -p kerneldriver  
-          mv ./code/*.h ./code/*.c kerneldriver/  
+          mv ./code/*.c kerneldriver/  
           echo 'obj-m += read.o' > kerneldriver/Makefile  
           echo 'ccflags-y := -I$$(srctree)/include' >> kerneldriver/Makefile  
             
